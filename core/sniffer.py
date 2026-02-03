@@ -7,112 +7,87 @@ import httpx
 from typing import Optional, List, Dict
 from dataclasses import dataclass
 
-# إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("SovereignSniffer.Ultra")
+logger = logging.getLogger("SovereignSniffer.Light")
 
 @dataclass
 class MarketEvent:
     signature: str
     timestamp: float
     event_type: str
-    risk_level: int
-    raw_logs: List[str]
-    coin_data: Optional[Dict] = None
+    jito_detected: bool = False
+    raw_logs: List[str] = None
 
 class PumpSniffer:
-    """
-    [2026-02-03] المحرك الفائق - النسخة السيادية المستقرة.
-    تم التطوير للعمل بتناغم مع واجهة Streamlit على GitHub.
-    """
     PROGRAM_ID = "6EF8rrecthR5DkZJbdz4P8hHKXY6yizQ2EtJhEqNpump"
+    JITO_TIP_PROGRAMS = ["9619WQCpPLM3U3M8qfT9MGP3C667XvQGczpG6GvV5Q66", "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe"]
 
-    def __init__(self, wss_url: str, archiver, workers: int = 2):
-        self.wss_url = wss_url
+    def __init__(self, wss_url: str, archiver):
+        # تحويل الرابط ليتوافق مع WebSocket
+        self.wss_url = wss_url.replace("https://", "wss://") if "wss://" not in wss_url else wss_url
         self.archiver = archiver
-        self.workers_count = workers
-        self._queue = asyncio.Queue(maxsize=1000)
+        self._queue = asyncio.Queue(maxsize=100) # تقليل الحجم للحفاظ على RAM
         self.is_running = False
 
-    async def _fetch_coin_info(self, mint: str) -> Optional[Dict]:
-        try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                url = f"https://frontend-api.pump.fun/coins/{mint}"
-                resp = await client.get(url)
-                return resp.json() if resp.status_code == 200 else None
-        except Exception as e:
-            logger.debug(f"API Fetch Hint: {e}")
-            return None
-
-    async def _worker_logic(self, worker_id: int):
-        """منطق معالجة البيانات المؤرشفة"""
+    async def _worker_logic(self):
+        """معالجة ذكية وموفرة للموارد"""
         while self.is_running:
             event = await self._queue.get()
             try:
-                # هنا نقوم بدمج البيانات مع الأرشيف
-                if self.archiver:
-                    self.archiver.record_event(event)
-                logger.info(f"Worker-{worker_id} Archived Signature: {event.signature[:10]}...")
+                # فلترة الفوليوم العالي (نكتفي هنا بكشف Jito كدليل على الاحترافية)
+                jito_found = any(tip in str(event.raw_logs) for l in event.raw_logs for tip in self.JITO_TIP_PROGRAMS)
+                
+                if jito_found or "Create" in event.event_type:
+                    if self.archiver:
+                        # وسم السلوك
+                        tag = "🚀 HIGH_VOLUME_MM" if jito_found else "New Launch"
+                        await self.archiver.analyze_and_archive(
+                            wallet=event.signature[:12], 
+                            raw_data={"sig": event.signature},
+                            behavior_tag=tag
+                        )
             except Exception as e:
-                logger.error(f"Worker Error: {e}")
+                logger.debug(f"Worker process skip: {e}")
             finally:
                 self._queue.task_done()
+                await asyncio.sleep(0.1) # تنفس للمُعالج (Resource Friendly)
 
     async def start_sniffing(self):
         self.is_running = True
-        for i in range(self.workers_count):
-            asyncio.create_task(self._worker_logic(i))
+        # اكتفِ بعامل واحد أو اثنين لـ Streamlit
+        asyncio.create_task(self._worker_logic())
 
         while self.is_running:
             try:
-                async with websockets.connect(
-                    self.wss_url, 
-                    ping_interval=20, 
-                    ping_timeout=10
-                ) as ws:
+                async with websockets.connect(self.wss_url, ping_interval=20) as ws:
                     await ws.send(json.dumps({
                         "jsonrpc": "2.0", "id": 1, "method": "logsSubscribe",
                         "params": [{"mentions": [self.PROGRAM_ID]}, {"commitment": "processed"}]
                     }))
-                    logger.info("📡 [SYSTEM] Sovereign Radar Online.")
+                    logger.info("📡 Sovereign Radar (Light Mode) Online.")
                     
                     while self.is_running:
                         msg = await ws.recv()
                         data = json.loads(msg)
-                        
-                        # استخراج التوقيع والسجلات (Logs)
                         if "params" in data:
-                            logs = data["params"]["result"]["value"]["logs"]
-                            signature = data["params"]["result"]["value"]["signature"]
-                            
-                            # تحليل سريع لمعرفة نوع الحدث (مثلاً: Create)
-                            event_type = "Unknown"
-                            if any("Program log: Instruction: Create" in l for l in logs):
-                                event_type = "Create"
-                            
-                            event = MarketEvent(
-                                signature=signature,
-                                timestamp=time.time(),
-                                event_type=event_type,
-                                risk_level=50, # قيمة افتراضية للتحليل
-                                raw_logs=logs
-                            )
-                            
-                            # وضع الحدث في الطابور للمعالجة
-                            if not self._queue.full():
-                                await self._queue.put(event)
-
+                            res = data["params"]["result"]["value"]
+                            logs = res.get("logs", [])
+                            # رصد الفوليوم العالي يبدأ من رصد عمليات الـ Create
+                            if any("Instruction: Create" in l for l in logs):
+                                ev = MarketEvent(signature=res["signature"], timestamp=time.time(), 
+                                                event_type="Create", raw_logs=logs)
+                                if not self._queue.full():
+                                    await self._queue.put(ev)
             except Exception as e:
-                logger.warning(f"Connection Lost: {e}. Reconnecting in 5s...")
                 await asyncio.sleep(5)
 
     def start(self):
-        """الجسر: تشغيل المحرك غير المتزامن داخل Thread متزامن"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        """تشغيل متوافق مع Streamlit"""
         try:
-            loop.run_until_complete(self.start_sniffing())
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self.start_sniffing())
+            else:
+                loop.run_until_complete(self.start_sniffing())
         except Exception as e:
-            logger.error(f"Engine Bridge Error: {e}")
-        finally:
-            loop.close()
+            logger.error(f"Bridge Error: {e}")
