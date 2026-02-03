@@ -5,18 +5,24 @@
         risk_score = self._compute_risk_score(behavior_tag)
         now = datetime.datetime.utcnow().isoformat()
         
-        # تحويل البيانات بالكامل لـ JSON للحفظ الدائم
-        metadata_json = json.dumps(raw_data)
-
-        # استخراج بيانات الـ API المبعوثة من السنيفر
+        # [خطوة الربط الذهبية]: نضمن وجود حقل 'api' داخل الـ JSON بالبيانات الصحيحة
         api_info = raw_data.get("api") or {}
         
-        # [تعديل الجودة]: منطق مرن لجلب رابط الصورة والاسم لضمان عدم ضياعهم
-        # يبحث الكود عن الصورة في الحقول المحتملة (image_url أو image_uri)
+        # استخراج البيانات بمرونة
         token_image = api_info.get("image_url") or api_info.get("image_uri") or api_info.get("logo")
         token_name = api_info.get("name", "Scanning...")
         token_symbol = api_info.get("symbol", "-")
 
+        # تحديث raw_data لضمان أن الـ Dashboard سيقرأ الصور والأسماء
+        raw_data["api"] = {
+            "image_url": token_image,
+            "name": token_name,
+            "symbol": token_symbol
+        }
+        
+        metadata_json = json.dumps(raw_data)
+
+        # الحفاظ على الـ Cache الخاص بك
         self._cache[wallet] = {
             "tag": behavior_tag, 
             "threat": risk_score, 
@@ -28,7 +34,9 @@
         }
 
         try:
+            # استخدام WAL mode لضمان عدم حدوث Database Lock بين البوت والواجهة
             async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("PRAGMA journal_mode=WAL") # إضافة هامة جداً لبيئة GitHub
                 await db.execute("""
                     INSERT INTO mm_intel (wallet_id, threat_level, behavior_pattern, trust_score, total_raids, historical_data_json, last_seen_at)
                     VALUES (?, ?, ?, ?, 1, ?, ?)
