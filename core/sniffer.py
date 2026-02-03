@@ -23,14 +23,14 @@ class PumpSniffer:
     """
     [2026-02-03] المحرك الفائق لرصد الثغرات السلوكية (Behavioral Gap Detector).
     نظام يعتمد على معالجة التدفق المتوازي (Parallel Stream Processing).
-    تم الحفاظ على كامل القدرات الأصلية مع ميزة الربط السحابي التلقائي.
+    تم التعديل ليتوافق مع بروتوكولات السحاب الحديثة.
     """
     PROGRAM_ID = "6EF8rrecthR5DkZJbdz4P8hHKXY6yizQ2EtJhEqNpump"
 
     def __init__(self, wss_url: str = None, archiver=None, workers: int = 5):
         # [تعديل الربط السحابي الجوهري]
-        # الأولوية المطلقة للقراءة من Secrets لضمان الاتصال السحابي
         try:
+            # محاولة جلب الرابط من Secrets أولاً لضمان التشغيل السحابي
             self.wss_url = st.secrets.get("WSS_URL_PRIMARY") or wss_url
         except Exception:
             self.wss_url = wss_url
@@ -57,7 +57,6 @@ class PumpSniffer:
 
     async def start_sniffing(self):
         """إطلاق الرادار بنظام خوادم المعالجة المتعددة (Worker Pool)"""
-        # تنظيف الرابط لضمان عدم وجود مسافات تعيق الاتصال
         if self.wss_url:
             self.wss_url = self.wss_url.strip()
 
@@ -68,17 +67,17 @@ class PumpSniffer:
         self.is_running = True
         logger.info(f"🚀 [ULTRA] Initializing {self.workers_count} Processing Workers...")
 
-        # إنشاء العمال (Workers) - القوة الضاربة للنظام
+        # تشغيل عمال المعالجة في الخلفية
         workers = [asyncio.create_task(self._worker_logic(i)) for i in range(self.workers_count)]
 
         while self.is_running:
             try:
-                # إعدادات الاتصال فائقة السرعة كما في كودك الأصلي
+                # [تم التعديل]: حذف extra_headers لضمان التوافق التام مع السحاب
                 async with websockets.connect(
                     self.wss_url, 
-                    ping_interval=None, 
-                    compression=None,   
-                    extra_headers={"User-Agent": "Sovereign-Engine-v1.0"}
+                    ping_interval=20, 
+                    ping_timeout=20,
+                    compression=None
                 ) as ws:
                     await self._subscribe(ws)
                     
@@ -92,7 +91,7 @@ class PumpSniffer:
 
             except Exception as e:
                 logger.error(f"⚠️ [CRITICAL] Radar Connection Lost: {e}")
-                await asyncio.sleep(0.5) 
+                await asyncio.sleep(1) # تهدئة قبل إعادة الاتصال
 
     async def _worker_logic(self, worker_id: int):
         """منطق العامل الذكي: تحليل فائق السرعة وفك تشفير البيانات"""
@@ -105,7 +104,6 @@ class PumpSniffer:
                     event = self._deep_parse(result)
                     
                     if event:
-                        # أرشفة فورية مع حساب زمن التأخير (Latency)
                         latency = (time.time() - arrival_time) * 1000
                         await self.archiver.analyze_and_archive(
                             wallet=event.signature,
@@ -119,20 +117,17 @@ class PumpSniffer:
                 logger.error(f"Worker-{worker_id} Error: {e}")
 
     def _deep_parse(self, result: dict) -> Optional[MarketEvent]:
-        """المحلل الهيكلي: فحص بصمات صناع السوق (منطقك الفائق)"""
+        """المحلل الهيكلي: فحص بصمات صناع السوق"""
         logs = result.get("logs", [])
         sig = result.get("signature")
         logs_str = "|".join(logs)
 
-        # بصمة 1: الإطلاق الفوري (Bundle Launch)
         if "mintTo" in logs_str and "InitializeMint" in logs_str:
             return MarketEvent(sig, time.time(), "INSTANT_BUNDLE_LAUNCH", 90, logs)
         
-        # بصمة 2: دخول المطور الآمن
         if "SetAuthority" in logs_str and "Trade" in logs_str:
             return MarketEvent(sig, time.time(), "SAFE_DEV_ENTRY", 20, logs)
 
-        # بصمة 3: التجميع عالي التردد (Bot Activity)
         if logs_str.count("Trade") > 10:
             return MarketEvent(sig, time.time(), "HIGH_FREQUENCY_ACCUMULATION", 60, logs)
 
