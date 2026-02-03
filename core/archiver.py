@@ -10,14 +10,12 @@ logger = logging.getLogger("SovereignArchiver")
 
 class MMArchiver:
     """
-    [2026-02-03] محرك الأرشفة السيادي - نسخة 'توازن الموارد'.
-    تمت إضافة نظام التجميع (Batching) لحماية سيرفر Streamlit من الانهيار.
+    [2026-02-03] محرك الأرشفة السيادي - النسخة المطورة للسحاب.
+    تم تصحيح توافق البيانات مع السنيفر المعتمد على الـ API.
     """
     def __init__(self, db_path=None):
-        # الاعتماد على مسار مؤقت في السحاب إذا لم يتوفر قاعدة بيانات خارجية
         self.db_path = db_path or "./archive/vault_v1.sqlite"
         self._cache: Dict[str, dict] = {} 
-        self._pending_writes = [] # قائمة انتظار للكتابة الجماعية
 
     async def boot_system(self):
         """تشغيل النظام مع نظام WAL لتحسين الأداء"""
@@ -26,7 +24,6 @@ class MMArchiver:
             os.makedirs(db_dir, exist_ok=True)
 
         async with aiosqlite.connect(self.db_path) as db:
-            # نظام WAL (Write-Ahead Logging) ضروري جداً لمنع قفل قاعدة البيانات في السحاب
             await db.execute("PRAGMA journal_mode=WAL")
             await db.execute("PRAGMA synchronous=NORMAL") 
             await db.execute("""
@@ -45,22 +42,24 @@ class MMArchiver:
 
     async def analyze_and_archive(self, wallet: str, raw_data: dict, behavior_tag: str):
         """
-        تحليل البصمة مع إضافة بيانات الـ API السريعة.
+        تحليل البصمة مع ضمان حفظ واسترجاع بيانات الـ API بشكل صحيح.
         """
         risk_score = self._compute_risk_score(behavior_tag)
         now = datetime.datetime.utcnow().isoformat()
         
-        # دمج بيانات الـ API في الأرشفة إذا وجدت
-        metadata = json.dumps(raw_data)
+        # تحويل البيانات بالكامل (بما فيها حقل 'api') إلى نص JSON للحفظ
+        metadata_json = json.dumps(raw_data)
 
-        # التعديل الاحترافي: تحديث الكاش أولاً لضمان السرعة في الواجهة
+        # [تصحيح الجودة]: السنيفر يرسل البيانات بمفتاح 'api' وليس 'metadata'
+        # نقوم باستخراجه لوضعه في الكاش السريع للعرض الفوري
+        coin_info = raw_data.get("api")
+
         self._cache[wallet] = {
             "tag": behavior_tag, 
             "threat": risk_score, 
-            "metadata": raw_data.get("metadata") # البيانات القادمة من API
+            "coin_info": coin_info  # تحديث المسمى ليتوافق مع السنيفر
         }
 
-        # تنفيذ الكتابة (نستخدم try/except لضمان عدم توقف البوت إذا تعثرت قاعدة البيانات)
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 await db.execute("""
@@ -72,20 +71,19 @@ class MMArchiver:
                         behavior_pattern = excluded.behavior_pattern,
                         historical_data_json = excluded.historical_data_json,
                         last_seen_at = excluded.last_seen_at
-                """, (wallet, risk_score, behavior_tag, 100-risk_score, metadata, now, risk_score))
+                """, (wallet, risk_score, behavior_tag, 100-risk_score, metadata_json, now, risk_score))
                 await db.commit()
-                logger.info(f"💾 [SAVED] {behavior_tag} -> {wallet[:8]}")
+                logger.info(f"💾 [SAVED] {behavior_tag} (with API Data) -> {wallet[:8]}")
         except Exception as e:
             logger.error(f"❌ Database Write Error: {e}")
 
     def _compute_risk_score(self, tag: str) -> int:
-        # الحفاظ على منطقك الأصلي كما طلبت
         scores = {
             "GOD_MODE_MM": 5,        
             "PUMP_DUMP_SCUM": 98,    
             "WASH_TRADE_BOT": 75,    
             "STEALTH_ACCUMULATOR": 15,
-            "INSTANT_BUNDLE_LAUNCH": 90, # إضافة النوع الجديد من السنيفر
-            "BOT_HFT_DETECTED": 70
+            "INSTANT_BUNDLE_LAUNCH": 90, 
+            "MM_HFT_ACTIVITY": 70 # توحيد المسمى مع السنيفر
         }
         return scores.get(tag, 50)
