@@ -4,8 +4,9 @@ import sqlite3
 import json
 import os
 import time
-import threading # الخطوة الجديدة: إضافة التحكم في الخلفية
-from core.sniffer import PumpSniffer # الخطوة الجديدة: استيراد محرك البوت الخاص بك
+import threading 
+from core.sniffer import PumpSniffer 
+from core.archiver import SovereignArchiver # أضفنا استدعاء الأرشيف للربط
 
 # ==========================================
 # 🧠 INTELLIGENCE DATA CORE
@@ -13,7 +14,7 @@ from core.sniffer import PumpSniffer # الخطوة الجديدة: استيرا
 class SovereignVault:
     @staticmethod
     def get_connection():
-        db_path = st.secrets.get("DATABASE_URL", "./archive/vault_v1.sqlite") 
+        db_path = "./archive/vault_v1.sqlite" # المسار المباشر المعتمد
         if not os.path.exists(db_path): return None
         return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
@@ -42,16 +43,22 @@ class SovereignVault:
 
 # --- [دالة تشغيل البوت كعملية خلفية] ---
 def start_bot_engine():
-    """هذه الدالة تشغل البوت مرة واحدة فقط في الخلفية"""
     if 'engine_running' not in st.session_state:
         try:
-            # تشغيل كلاس البوت الخاص بك
-            bot = PumpSniffer()
-            # تشغيل البوت في خيط (Thread) منفصل لكي لا يتوقف الموقع
-            threading.Thread(target=bot.start, daemon=True).start()
+            # 1. إعداد الأرشيف أولاً
+            archiver = SovereignArchiver(db_path="./archive/vault_v1.sqlite")
+            
+            # 2. إعداد السنيفر بالرابط (استبدل الرابط برابطك الخاص إذا لزم الأمر)
+            wss_url = st.secrets.get("WSS_URL", "wss://api.mainnet-beta.solana.com")
+            bot = PumpSniffer(wss_url=wss_url, archiver=archiver)
+            
+            # 3. التشغيل في خيط منفصل
+            thread = threading.Thread(target=bot.start, daemon=True)
+            thread.start()
+            
             st.session_state['engine_running'] = True
         except Exception as e:
-            print(f"Engine failed to start: {e}")
+            st.error(f"Engine failed to start: {e}")
 
 # ==========================================
 # 🖥️ SOVEREIGN INTERFACE BUILDER
@@ -59,26 +66,26 @@ def start_bot_engine():
 def render_dashboard():
     st.set_page_config(page_title="SOVEREIGN APEX", page_icon="🛡️", layout="wide")
     
-    # تنفيذ تشغيل البوت
+    # تشغيل البوت بمجرد فتح الصفحة
     start_bot_engine()
 
     df = SovereignVault.fetch_live_registry()
     
+    st.title("🛰️ Sovereign MM Intelligence")
+    st.caption("Status: Tracking and archiving market maker bots. [Live Radar]")
+
     if df.empty:
-        st.title("🛰️ Sovereign MM Intelligence")
-        st.warning("📡 Radar is active. Sniffer engine is starting to archive MM bots...")
-        st.info("Status: Waiting for first blockchain signal to write to /archive/vault_v1.sqlite")
+        st.warning("📡 Radar is active. Sniffer engine is starting...")
+        st.info("Waiting for first blockchain signal to update /archive/vault_v1.sqlite")
         time.sleep(5)
         st.rerun()
         return
 
-    st.title("🛰️ Sovereign MM Intelligence")
-    st.caption("Core System: Tracking, recording, and archiving market maker bots. [2026-02-03]")
-    
+    # عرض الإحصائيات
     c_m1, c_m2, c_m3 = st.columns(3)
     c_m1.metric("Bots Archived", len(df))
     c_m2.metric("Latest Target", df.iloc[0]['token_name'] if not df.empty else "N/A")
-    c_m3.metric("System Status", "Live & Enriched")
+    c_m3.metric("System Status", "Live & Tracking")
 
     st.markdown("---")
 
