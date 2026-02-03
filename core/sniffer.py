@@ -28,11 +28,12 @@ class PumpSniffer:
     PROGRAM_ID = "6EF8rrecthR5DkZJbdz4P8hHKXY6yizQ2EtJhEqNpump"
 
     def __init__(self, wss_url: str = None, archiver=None, workers: int = 5):
-        # التعديل الجوهري: الأولوية للرابط من Secrets لضمان التشغيل السحابي
+        # [تعديل الربط السحابي الجوهري]
+        # الأولوية المطلقة للقراءة من Secrets لضمان الاتصال السحابي
         try:
-            self.wss_url = wss_url or st.secrets["WSS_URL_PRIMARY"]
+            self.wss_url = st.secrets.get("WSS_URL_PRIMARY") or wss_url
         except Exception:
-            self.wss_url = wss_url # للمرونة في التشغيل المحلي
+            self.wss_url = wss_url
             
         self.archiver = archiver
         self.workers_count = workers
@@ -56,6 +57,10 @@ class PumpSniffer:
 
     async def start_sniffing(self):
         """إطلاق الرادار بنظام خوادم المعالجة المتعددة (Worker Pool)"""
+        # تنظيف الرابط لضمان عدم وجود مسافات تعيق الاتصال
+        if self.wss_url:
+            self.wss_url = self.wss_url.strip()
+
         if not self.wss_url:
             logger.error("❌ [CRITICAL] WSS URL is missing! Check Streamlit Secrets.")
             return
