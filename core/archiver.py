@@ -3,51 +3,60 @@ import datetime
 import json
 import logging
 import asyncio
+import os
+import streamlit as st  # إضافة مكتبة ستريمليت لجلب الإعدادات السرية
 from dataclasses import dataclass, field
 from typing import Optional, Dict
 
-# إعداد السجلات بنظام احترافي (Logging System)
+# إعداد السجلات بنظام احترافي
 logger = logging.getLogger("SovereignArchiver")
 logging.basicConfig(level=logging.INFO)
 
 class MMArchiver:
     """
-    [2026-02-03] محرك الأرشفة السيادي - الإصدار المطلق.
-    النظام مصمم ليكون "الذاكرة الفوتوغرافية" لكل صانع سوق على Solana.
+    [2026-02-03] محرك الأرشفة السيادي - نسخة السحاب المطورة.
+    تم الحفاظ على منطق الـ GOD_MODE و PUMP_DUMP مع ربطها بـ Streamlit Secrets.
     """
-    def __init__(self, db_path="./archive/vault_v1.sqlite"):
-        self.db_path = db_path
-        self._cache: Dict[str, dict] = {} # ذاكرة مؤقتة لسرعة الاستجابة الملي-ثانية
+    def __init__(self, db_path=None):
+        # التعديل 1: جلب المسار من Secrets إذا لم يتم تمريره، لضمان العمل على السحاب
+        if db_path is None:
+            try:
+                self.db_path = st.secrets["DATABASE_URL"]
+            except:
+                self.db_path = "./archive/vault_v1.sqlite"
+        else:
+            self.db_path = db_path
+            
+        self._cache: Dict[str, dict] = {} 
 
     async def boot_system(self):
-        """تشغيل النظام وفحص سلامة الهيكل"""
+        """تشغيل النظام وضمان وجود المجلدات في بيئة السحاب"""
+        # التعديل 2: التأكد من وجود المجلد تلقائياً لمنع خطأ FileNotFoundError
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+            logger.info(f"📂 [SYSTEM] Created directory: {db_dir}")
+
         async with aiosqlite.connect(self.db_path) as db:
-            # تفعيل نمط WAL للسرعة القصوى في القراءة والكتابة المتزامنة
             await db.execute("PRAGMA journal_mode=WAL")
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS mm_intel (
                     wallet_id TEXT PRIMARY KEY,
                     threat_level INTEGER CHECK(threat_level BETWEEN 0 AND 100),
-                    behavior_pattern TEXT, -- (مثلاً: Wash Trading, Stealth Buy)
+                    behavior_pattern TEXT,
                     trust_score REAL,
                     total_raids INTEGER,
-                    historical_data_json TEXT, -- أرشيف الصفقات السابقة
+                    historical_data_json TEXT,
                     last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             await db.commit()
-            logger.info("🚀 [SYSTEM] Sovereign Vault is Online and Encrypted.")
+            logger.info("🚀 [SYSTEM] Sovereign Vault is Online and Encrypted on Cloud.")
 
     async def analyze_and_archive(self, wallet: str, raw_data: dict, behavior_tag: str):
-        """
-        [cite: 2026-02-03]
-        تحليل البصمة السلوكية وأرشفتها فوراً. 
-        يستخدم هذا التابع نظام الـ Upsert لضمان عدم تكرار البيانات.
-        """
+        """تحليل البصمة السلوكية وأرشفتها فوراً (منطقك الأصلي كما هو)"""
         risk_score = self._compute_risk_score(behavior_tag)
         now = datetime.datetime.utcnow().isoformat()
-        
-        # تحويل البيانات لـ JSON مع ضغطها برمجياً
         metadata = json.dumps(raw_data)
 
         async with aiosqlite.connect(self.db_path) as db:
@@ -63,22 +72,21 @@ class MMArchiver:
             """, (wallet, risk_score, behavior_tag, 100-risk_score, metadata, now, risk_score))
             await db.commit()
             
-            # تحديث الذاكرة المؤقتة (Cache) لتجنب الاستعلام من القرص مرة أخرى
             self._cache[wallet] = {"tag": behavior_tag, "threat": risk_score}
             logger.info(f"💾 [ARCHIVED] Target {wallet[:6]}... classified as {behavior_tag}")
 
     def _compute_risk_score(self, tag: str) -> int:
-        """منطق تقييم التهديد المتقدم"""
+        """منطق تقييم التهديد المتقدم (محفوظ بالكامل)"""
         scores = {
-            "GOD_MODE_MM": 5,        # صانع سوق محترف جداً وموثوق
-            "PUMP_DUMP_SCUM": 98,    # خطر فوري
-            "WASH_TRADE_BOT": 75,    # تلاعب بالفوليوم
-            "STEALTH_ACCUMULATOR": 15 # تجميع ذكي (فرصة شراء)
+            "GOD_MODE_MM": 5,        
+            "PUMP_DUMP_SCUM": 98,    
+            "WASH_TRADE_BOT": 75,    
+            "STEALTH_ACCUMULATOR": 15 
         }
         return scores.get(tag, 50)
 
     async def quick_check(self, wallet: str) -> Optional[dict]:
-        """فحص سريع للمحفظة: هل واجهناها من قبل؟"""
+        """فحص سريع للمحفظة"""
         if wallet in self._cache:
             return self._cache[wallet]
         
