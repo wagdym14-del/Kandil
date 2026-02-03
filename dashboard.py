@@ -11,8 +11,8 @@ import time
 class SovereignVault:
     @staticmethod
     def get_connection():
-        # استخدام المسار الافتراضي الصحيح لقاعدة البيانات
-        db_path = st.secrets.get("DATABASE_URL", "./archive/sovereign_vault.sqlite")
+        # التأكد من جلب المسار من Secrets أو استخدام المسار الافتراضي المعتمد في مشروعك
+        db_path = st.secrets.get("DATABASE_URL", "./archive/vault_v1.sqlite") 
         if not os.path.exists(db_path): return None
         return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
@@ -33,7 +33,7 @@ class SovereignVault:
                 except:
                     api_data = {}
                 
-                # استخراج الرابط بشكل مرن
+                # استخراج البيانات بمرونة عالية لضمان ظهور الصورة والاسم
                 row['token_icon'] = api_data.get('image_url') or api_data.get('image_uri') or api_data.get('logo')
                 row['token_name'] = api_data.get('name', 'Scanning...')
                 row['token_symbol'] = api_data.get('symbol', '-')
@@ -49,22 +49,24 @@ class SovereignVault:
 # 🖥️ SOVEREIGN INTERFACE BUILDER (تحديث العرض)
 # ==========================================
 def render_dashboard():
-    # استدعاء البيانات المعالجة
+    # إعداد الصفحة الأساسي (ضروري لمنع الأخطاء في Streamlit)
+    st.set_page_config(page_title="SOVEREIGN APEX", page_icon="🛡️", layout="wide")
+    
     df_raw = SovereignVault.fetch_live_registry()
     
     if df_raw is None or df_raw.empty:
-        st.warning("📡 Radar is scanning the blockchain...")
+        st.warning("📡 Radar is scanning the blockchain... Waiting for data.")
         return
 
-    df = df_raw
-
+    st.title("🛰️ Sovereign MM Intelligence")
     st.markdown("---")
+    
     c1, c2 = st.columns([2, 1])
 
     with c1:
         st.subheader("🧬 Behavioral Ledger (Enriched)")
         st.dataframe(
-            df,
+            df_raw,
             column_config={
                 "token_icon": st.column_config.ImageColumn("Icon"), 
                 "token_name": "Token Name",
