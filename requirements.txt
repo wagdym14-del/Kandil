@@ -1,7 +1,0 @@
-streamlit
-pandas
-plotly
-solana
-solders
-requests
-base58
