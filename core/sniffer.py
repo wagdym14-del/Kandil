@@ -11,8 +11,8 @@ logger = logging.getLogger("SovereignSniffer.Ultra")
 
 class PumpSniffer:
     """
-    [2026-02-03] المحرك السيادي (النسخة الخفيفة).
-    فلترة فورية في الهواء وتجاهل للضجيج لضمان عدم الانهيار.
+    [2026-02-03] النسخة الاحترافية المستقرة.
+    تحسين استهلاك الذاكرة وإضافة نظام Keep-Alive لمنع إعادة التشغيل.
     """
     PROGRAM_ID = "6EF8rrecthR5DkZJbdz4P8hHKXY6yizQ2EtJhEqNpump"
 
@@ -31,39 +31,55 @@ class PumpSniffer:
         
         while self.is_running:
             try:
-                async with websockets.connect(self.wss_url) as ws:
-                    # الاشتراك
+                # [تعديل 1]: إضافة ping_interval للحفاظ على الاتصال حياً ومنع السيرفر من فصلك
+                async with websockets.connect(
+                    self.wss_url, 
+                    ping_interval=20, 
+                    ping_timeout=10,
+                    close_timeout=5
+                ) as ws:
                     await ws.send(json.dumps({
                         "jsonrpc": "2.0", "id": 1, "method": "logsSubscribe",
                         "params": [{"mentions": [self.PROGRAM_ID]}, {"commitment": "processed"}]
                     }))
-                    logger.info("📡 [RADAR] Monitoring Active...")
+                    logger.info("📡 [RADAR] Stable Connection Established...")
 
                     while self.is_running:
-                        raw_msg = await ws.recv()
-                        data = json.loads(raw_msg)
-                        
-                        # [المصفاة الفورية]: تجاهل الرسائل التي لا تحتوي على بيانات فعلية
+                        # [تعديل 2]: انتظار الرسالة مع timeout لمنع التجميد (Freeze)
+                        try:
+                            raw_msg = await asyncio.wait_for(ws.recv(), timeout=30)
+                            data = json.loads(raw_msg)
+                        except asyncio.TimeoutError:
+                            # إذا لم تصل رسالة، نرسل نبضة يدوية للتأكد من حيوية الرابط
+                            await ws.ping()
+                            continue
+
                         if "params" not in data: continue
                         
                         val = data["params"]["result"]["value"]
                         logs = val.get("logs", [])
+                        if not logs: continue # [تعديل 3]: تجاهل الرسائل الفارغة فوراً لتوفير الذاكرة
+
                         logs_str = "|".join(logs)
                         
-                        # [تجاهل غير الضروري]: تصفية صارمة لرصد صناع السوق فقط
                         event_type = None
+                        # رصد صناع السوق (العملات الجديدة أو البوتات المكثفة)
                         if "mintTo" in logs_str and "InitializeMint" in logs_str:
-                            event_type = "MM_BUNDLE_LAUNCH" # إطلاق بمحافظ متعددة
-                        elif logs_str.count("Trade") > 10: # رفع المعيار لـ 10 لتقليل الضغط
-                            event_type = "MM_HFT_ACTIVITY" # نشاط بوت مكثف
+                            event_type = "MM_BUNDLE_LAUNCH" 
+                        elif logs_str.count("Trade") > 12: # رفعنا المعيار لـ 12 لتقليل الزحام
+                            event_type = "MM_HFT_ACTIVITY" 
 
-                        # إذا كانت الرسالة "ضرورية"، نؤرشفها فوراً
                         if event_type and self.archiver:
+                            # الأرشفة والتتبع بناءً على طلبك السابق [2026-02-03]
                             await self.archiver.analyze_and_archive(
                                 wallet=val.get("signature"),
                                 raw_data={"logs": logs},
                                 behavior_tag=event_type
                             )
+                            # استراحة مجهرية لضمان عدم استهلاك الـ CPU بالكامل
+                            await asyncio.sleep(0.01)
+
             except Exception as e:
-                logger.warning("🔄 Reconnecting in 5s...")
-                await asyncio.sleep(5)
+                # [تعديل 4]: زيادة وقت التبريد عند حدوث خطأ لمنع حظر الـ IP
+                logger.warning(f"🔄 Cooling down for 10s... Error: {str(e)[:30]}")
+                await asyncio.sleep(10)
