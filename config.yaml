@@ -1,0 +1,59 @@
+# ============================================================
+# PROJECT: MM SOVEREIGN ENGINE v1.0 [PREMIUM]
+# LAST UPDATED: 2026-02-03
+# DESCRIPTION: Advanced Market Maker Behavioral Archiver
+# ============================================================
+
+# 🌐 اتصال الشبكة عالي السرعة (Low Latency)
+network:
+  rpc:
+    http: "YOUR_PREMIUM_RPC_URL"
+    wss: "YOUR_PREMIUM_WSS_URL"
+  retry_strategy:
+    max_retries: 5
+    backoff_ms: 100
+  commitment: "confirmed"
+
+# 🎯 رادار القنص (The Advanced Sniffer)
+scanner:
+  targets: ["pump.fun", "raydium"]
+  filters:
+    min_liquidity_sol: 15.0      # تتبع فقط الحيتان الجادين
+    max_dev_holding_pct: 10.0    # استبعاد العملات التي يملك المطور نسبة كبيرة منها
+    check_bundle_buy: true        # كشف الشراء المجمع (Bundled TXs) فور الإطلاق
+  timing:
+    scan_delay_ms: 0             # تشغيل بدون تأخير (Real-time)
+
+# 🧠 محرك تحليل البصمة (The Behavioral Archiver)
+# [cite: 2026-02-03] مخصص لتتبع وأرشفة صناع السوق للتعرف عليهم مستقبلاً
+analysis_engine:
+  mode: "behavioral_fingerprinting"
+  archiver_settings:
+    enabled: true                # تفعيل الأرشفة التلقائية
+    db_path: "./archive/mm_database.sqlite"
+    auto_tag: true               # تصنيف تلقائي (مثلاً: "صانع سوق غادر", "صانع سوق صبور")
+  
+  detection_patterns:
+    - "wash_trading_detection"   # كشف التداول الوهمي لرفع الفوليوم
+    - "liquidity_provision_style" # تحليل طريقة ضخ وسحب السيولة
+    - "wallet_clustering"        # تتبع المحافظ المرتبطة ببعضها (Cluster)
+
+# 🛡️ إدارة المخاطر والأمان (Risk & Execution)
+risk_management:
+  auto_stop_loss: true
+  stop_loss_limit: 0.85          # بيع تلقائي عند خسارة 15%
+  take_profit_strategy:
+    tier_1: {multiplier: 2.0, sell_pct: 50}  # بيع النصف عند التدبيلة
+    tier_2: {multiplier: 5.0, sell_pct: 30}  # بيع 30% عند 5 أضعاف
+    tier_3: {multiplier: 10.0, sell_pct: 20} # بيع الباقي عند 10 أضعاف
+  max_gas_price_sol: 0.005       # أقصى عمولة دفع للشبكة لضمان سرعة التنفيذ
+
+# 📱 واجهة الأندرويد (Android Synchronization)
+telemetry:
+  api_server:
+    host: "0.0.0.0"
+    port: 9000
+    secure: true
+  alerts:
+    push_notifications: true
+    signal_type: "visual_footprint" # عرض البصمة بشكل رسومي على التطبيق
