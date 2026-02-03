@@ -3,7 +3,7 @@ import websockets
 import json
 import logging
 import time
-import streamlit as st  # المحرك السحابي (لا يؤثر على السرعة)
+import streamlit as st  # المستشعر السحابي
 from typing import Optional, List, Dict
 from dataclasses import dataclass
 
@@ -28,11 +28,15 @@ class PumpSniffer:
     PROGRAM_ID = "6EF8rrecthR5DkZJbdz4P8hHKXY6yizQ2EtJhEqNpump"
 
     def __init__(self, wss_url: str = None, archiver=None, workers: int = 5):
-        # التعديل: يسحب الرابط من الخزنة إذا لم يتم تمريره، مما يضمن العمل سحابياً ومحلياً
-        self.wss_url = wss_url or st.secrets.get("WSS_URL_PRIMARY")
+        # التعديل الجوهري: الأولوية للرابط من Secrets لضمان التشغيل السحابي
+        try:
+            self.wss_url = wss_url or st.secrets["WSS_URL_PRIMARY"]
+        except Exception:
+            self.wss_url = wss_url # للمرونة في التشغيل المحلي
+            
         self.archiver = archiver
         self.workers_count = workers
-        self._queue = asyncio.Queue(maxsize=10000) # طابور ضخم للحماية من الانفجار البياني
+        self._queue = asyncio.Queue(maxsize=10000) 
         self.is_running = False
         self._performance_metrics = {"total_processed": 0, "dropped": 0}
 
@@ -53,13 +57,13 @@ class PumpSniffer:
     async def start_sniffing(self):
         """إطلاق الرادار بنظام خوادم المعالجة المتعددة (Worker Pool)"""
         if not self.wss_url:
-            logger.error("❌ [CRITICAL] WSS URL is missing from Secrets!")
+            logger.error("❌ [CRITICAL] WSS URL is missing! Check Streamlit Secrets.")
             return
 
         self.is_running = True
         logger.info(f"🚀 [ULTRA] Initializing {self.workers_count} Processing Workers...")
 
-        # إنشاء مجموعة من العمال للمعالجة المتوازية (كامل قدراتك هنا)
+        # إنشاء العمال (Workers) - القوة الضاربة للنظام
         workers = [asyncio.create_task(self._worker_logic(i)) for i in range(self.workers_count)]
 
         while self.is_running:
@@ -86,10 +90,10 @@ class PumpSniffer:
                 await asyncio.sleep(0.5) 
 
     async def _worker_logic(self, worker_id: int):
-        """منطق العامل الذكي: تحليل فائق السرعة (لم يتم تغيير حرف واحد)"""
+        """منطق العامل الذكي: تحليل فائق السرعة وفك تشفير البيانات"""
         while self.is_running:
-            raw_msg, arrival_time = await self._queue.get()
             try:
+                raw_msg, arrival_time = await self._queue.get()
                 data = json.loads(raw_msg)
                 if "params" in data:
                     result = data["params"]["result"]["value"]
@@ -104,23 +108,26 @@ class PumpSniffer:
                             behavior_tag=event.event_type
                         )
                         self._performance_metrics["total_processed"] += 1
+                
+                self._queue.task_done()
             except Exception as e:
                 logger.error(f"Worker-{worker_id} Error: {e}")
-            finally:
-                self._queue.task_done()
 
     def _deep_parse(self, result: dict) -> Optional[MarketEvent]:
-        """المحلل الهيكلي: فحص كثافة السجلات (منطقك الأصلي الفائق)"""
+        """المحلل الهيكلي: فحص بصمات صناع السوق (منطقك الفائق)"""
         logs = result.get("logs", [])
         sig = result.get("signature")
         logs_str = "|".join(logs)
 
+        # بصمة 1: الإطلاق الفوري (Bundle Launch)
         if "mintTo" in logs_str and "InitializeMint" in logs_str:
             return MarketEvent(sig, time.time(), "INSTANT_BUNDLE_LAUNCH", 90, logs)
         
+        # بصمة 2: دخول المطور الآمن
         if "SetAuthority" in logs_str and "Trade" in logs_str:
             return MarketEvent(sig, time.time(), "SAFE_DEV_ENTRY", 20, logs)
 
+        # بصمة 3: التجميع عالي التردد (Bot Activity)
         if logs_str.count("Trade") > 10:
             return MarketEvent(sig, time.time(), "HIGH_FREQUENCY_ACCUMULATION", 60, logs)
 
