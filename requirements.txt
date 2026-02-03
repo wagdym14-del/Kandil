@@ -6,3 +6,4 @@ aiosqlite
 python-dotenv
 websockets
 base58
+httpx
